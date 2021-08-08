@@ -1,0 +1,31 @@
+npm init -y 
+npm i --save-dev typescript
+tsc --init
+
+npm install --save-dev eslint @typescript-eslint/eslint-plugin @typescript-eslint/parser 
+npm install express @types/express
+npm install inversify reflect-metadata --save
+npm install @types/rx --save-dev
+
+cd C:\repo\mine\loops\loops-docker-multi-runner\dotnet\loops-container-game
+
+docker run -it `
+    -p 1000:1000 `
+    -p 9229:9229 `
+    -w /src `
+    -v "${PWD}:/src/" `
+    --entrypoint /bin/bash node 
+
+docker run -d `
+    #--name loops-container-game `
+    -p 1000:1000 `
+    -p 9229:9229 `
+    -w /src `
+    -v "${PWD}:/src/" node npm run debug
+
+# https://code.visualstudio.com/blogs/2019/10/31/inspecting-containers
+
+
+# Remote Explorer > Containers >
+
+# ctrl shift + p

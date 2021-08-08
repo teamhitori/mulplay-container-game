@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+option csharp_namespace = "TeamHitori.Mulplay.Shared.Poco";
+
+package Mulplay;
+
+// The service definition.
+service GameService {
+  rpc ping (Document) returns (Document);
+  rpc createGame (Document) returns (Document);
+  rpc startGame (ConnectedUserDocument) returns (stream Document);
+  rpc startMetrics (ConnectedUserDocument) returns (stream ConnectedUserDocument);
+  rpc stepGame (ConnectedUserDocument) returns (Document);
+  rpc restartGame (ConnectedUserDocument) returns (Document);
+  rpc destroyGame (Document) returns (Document);
+  rpc queueNewUser (ConnectedUserDocument) returns (ConnectedUserDocument);
+  rpc exitUser (ConnectedUserDocument) returns (ConnectedUserDocument);
+  rpc queueUserEvent (stream ConnectedUserDocument) returns (stream ConnectedUserDocument);
+}
+
+message Document {
+	string content = 1;
+	string gamePrimaryName = 2;
+}
+
+message ConnectedUserDocument {
+	string content = 1;
+	string connectionId = 2;
+	string gamePrimaryName = 3;
+}

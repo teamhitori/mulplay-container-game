@@ -1,0 +1,1 @@
+{"version":3,"file":"IGameDefinition.d.ts","sourceRoot":"","sources":["../../../src/documents/IGameDefinition.ts"],"names":[],"mappings":"AAAA,MAAM,WAAW,eAAe;IAC5B,QAAQ,EAAE,MAAM,CAAC;IACjB,UAAU,EAAE,MAAM,CAAC;IACnB,aAAa,EAAE,MAAM,CAAC;IACtB,UAAU,EAAE,MAAM,CAAC;IACnB,cAAc,EAAE,MAAM,CAAC;IACvB,aAAa,EAAE,MAAM,CAAC;IACtB,cAAc,EAAE,MAAM,CAAC;IACvB,aAAa,EAAE,MAAM,CAAA;CACxB"}
