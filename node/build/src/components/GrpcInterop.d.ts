@@ -6,9 +6,10 @@ export class GrpcInterop {
     static stepGame(call: any, callback: any): void;
     static destroyGame(call: any, callback: any): void;
     static ping(call: any, callback: any): void;
-    static queueNewUser(call: any, callback: any): void;
-    static exitUser(call: any, callback: any): void;
-    static queueUserEvent(call: any): void;
+    static playerEnter(call: any, callback: any): void;
+    static playerExit(call: any, callback: any): void;
+    static playerEventIn(call: any): void;
+    static playerEventOut(call: any): void;
     start(): void;
 }
 //# sourceMappingURL=GrpcInterop.d.ts.map

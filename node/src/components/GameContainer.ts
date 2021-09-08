@@ -9,6 +9,7 @@ import * as lodash from "lodash";
 import { IGameContainer } from "../interfaces/IGameContainer";
 import { IGrpcInterop } from "../interfaces/IGrpcInterop";
 import { ILoopMetrics } from '../documents/ILoopMetrics';
+import { IBackendApi } from '../interfaces/IBackendApi';
 //import { IGameDefinition } from '../documents/IGameDefinition';
 //import { IGameDefinitionInternal } from '../documents/IGameDefinitionInternal';
 import { IGameDefinition } from '../documents/IGameDefinition';
@@ -24,6 +25,7 @@ export class GameContainer implements IGameContainer {
     private _endMetrics: Subject<string> = new Subject<string>();
     private _gameStepObservable?: Subject<any> | null = null;
     private _metricsObservable?: Subject<any> | null = null;
+    private _playerEventObservable: Subject<{ [id: string]: any; }> | null = null;
 
     private _loopMetrics = <ILoopMetrics>{
         primaryName: "",
@@ -42,19 +44,20 @@ export class GameContainer implements IGameContainer {
     private _loopActive = false;
     //private _gameDefinitionInternal?: IGameDefinitionInternal;
     private _gameDefinition?: IGameDefinition;
+    private _gamePrimaryName = ""
 
     // ## in game constructs ##
-    private _gameLoopLogic?: Function;
-    private _startLogic?: Function;
-    private _userEnterLogic?: Function;
-    private _userEventLogic?: Function;
-    private _userExitLogic?: Function
-    private _gameState: any = {};
-    private _userList: { [id: string]: any; } = {};
+    // private _gameLoopLogic?: Function;
+    // private _backendLogic?: Function;
+    // private _userEnterLogic?: Function;
+    // private _userEventLogic?: Function;
+    // private _userExitLogic?: Function
+
+    private _playerList: { [id: string]: any; } = {};
     private _nextPos = 0;
     private _newUserList: any[] = [];
     private _exitedUserList: any[] = [];
-    private _userEventQueue: IConnectedUserDocument[] = [];
+    private _playerEventQueue: IConnectedUserDocument[] = [];
     private _gameThis: {
         breakActive: boolean,
         _isStepComplete: boolean
@@ -69,6 +72,8 @@ export class GameContainer implements IGameContainer {
 
     private _scene: BABYLON.Scene;
     private _logFactory: LogFactory;
+    private _backendApi: IBackendApi;
+    private _gameCreated: boolean = false;
 
     constructor() {
 
@@ -77,51 +82,103 @@ export class GameContainer implements IGameContainer {
         var camera = new BABYLON.FreeCamera("camera1", new BABYLON.Vector3(0, 0, 0), scene);
 
         this._scene = scene;
-
         this._logFactory = new LogFactory();
 
         console.log("render started");
-        engine.runRenderLoop(function () {
-            scene.render();
-        })
+        engine.runRenderLoop(() => {
+            try {
+                scene.render();
+            } catch (ex) {
+                this._logFactory.get("Scene Render Error").log(ex);
+                this._loopActive = false;
+                this._endLoop.next(".");
+                this._endMetrics.next(".");
+                throw ex;
+            }
+
+        });
+
+        this._backendApi = <IBackendApi>{
+            pushPlayerState: (playerPosition: number, state: any) => {
+                for (let connectionId in this._playerList) {
+                    if (this._playerList[connectionId] == playerPosition) {
+                        this._playerEventObservable?.next({ "connectionId": connectionId, "state": state });
+                    }
+                }
+            },
+            pushGameState: (state: any) => {
+                this._gameStepObservable?.next(state);
+            },
+            onPlayerEvent: (callback: (playerPosition: number, playerState: any) => void) => {
+                this._onUserEventCallback = callback;
+            },
+            onGameLoop: (callback: () => void) => {
+                this._onGameLoopCallback = callback;
+            },
+            onPlayerEnter: (callback: (playerPosition: number) => void) => {
+                this._onUserEnterCallback = callback;
+            },
+            onPlayerExit: (callback: (playerPosition: number) => void) => {
+                this._onUserExitCallback = callback;
+            },
+            onGameStop: (callback: () => void) => {
+                this._onGameStopCallback = callback;
+            },
+            onGameStart: (callback: () => void) => {
+                this._onGameStartCallback = callback;
+            }
+        };
     }
+
+    private _onUserEventCallback: (playerPosition: number, playerState: any) => void = _ => { console.log("On player Event callback not set") };
+    private _onGameLoopCallback: () => void = () => { console.log("On game loop callback not set") };
+    private _onUserEnterCallback: (playerPosition: number) => void = _ => { console.log("On player enter callback not set") };
+    private _onUserExitCallback: (playerPosition: number) => void = _ => { console.log("On player exit callback not set") };
+    private _onGameStopCallback: () => void = () => { console.log("On game stop callback not set") };
+    private _onGameStartCallback: () => void = () => { console.log("On game start callback not set") };
 
     createGame(content: string): Promise<string> {
         return new Promise((resolve, reject) => {
             try {
+                var logger = this._logFactory.get("Back End");
+
                 this._gameDefinition = JSON.parse(content);
-                this._startLogic = new Function("require", "logger", "scene", "gameState", `${this._gameDefinition?.startLogic}`);
-                this._gameLoopLogic = new Function("require", "logger", "scene", "gameState", `${this._gameDefinition?.gameLoopLogic}`);
-                this._userEventLogic = new Function("require", "logger", "scene", "gameState", "eventData", `${this._gameDefinition?.userEventLogic}`);
-                this._userEnterLogic = new Function("require", "logger", "scene", "gameState", "eventData", `${this._gameDefinition?.userEnterLogic}`);
-                this._userExitLogic = new Function("require", "logger", "scene", "gameState", "eventData", `${this._gameDefinition?.userExitLogic}`);
+                var backendLogic = new Function("require", "logger", "scene", "gameConfig", "backendApi", `${this._gameDefinition?.backendLogic}`);
+
+                backendLogic.call(this._gameThis, require, logger, this._scene, this._gameDefinition?.gameConfig, this._backendApi);
+
+                this._gameCreated = true;
 
             } catch (ex) {
                 this._logFactory.get("create game").log(ex);
+                this._loopMetrics.logs = this._logFactory.takeLogs();
+                this._metricsObservable?.next(this._loopMetrics);
+                this._loopActive = false;
+                this._endLoop.next(".");
+                this._endMetrics.next(".");
             }
             resolve(content);
         });
     }
 
-    startGame(contentIn: any): Observable<any> {
+    startGame(contentIn: any) {
         var loggerstart = this._logFactory.get("StartLogic");
 
         this._loopMetrics.lastActive = new Date().getTime();
         this._gameThis.breakActive = false;
 
-        if (!this._loopActive) {
-            loggerstart.log(`## STARTING GAME LOOP ## primaryName: ${contentIn.gamePriamryName}`);
+        if (!this._loopActive && this._gameCreated) {
+            loggerstart.log(`## STARTING GAME LOOP ## primaryName: ${contentIn.gamePrimaryName}`);
 
-            this._gameState = {};
-            //this._userList = {};
-            //this._userCount = 0;
-            this._userEventQueue = [];
+            this._gamePrimaryName = contentIn.gamePrimaryName;
+            this._playerEventQueue = [];
             this._gameThis = { breakActive: false, _isStepComplete: false };
 
             try {
                 //this._executeUserFunction("startLogic", loggerstart, this._startLogic);
-                this._startLogic?.call(this._gameThis, require, loggerstart, this._scene, this._gameState);
-            } catch (ex) {
+                //this._backendLogic?.call(this._gameThis, require, loggerstart, this._scene, this._gameState);
+                this._onGameStartCallback();
+            } catch (ex: any) {
                 loggerstart.log(ex.message);
             }
 
@@ -138,19 +195,38 @@ export class GameContainer implements IGameContainer {
             this._metricsObservable = new Subject<any>();
         }
 
+        if (!this._playerEventObservable) {
+            this._playerEventObservable = new Subject<any>();
+        }
+    }
+
+    gameLoop(): Observable<any> {
         return this._gameStepObservable!!
             .pipe(
-                bufferTime(Math.max(100, this._gameDefinition?.intervalMs ?? 100)),
+                bufferTime(Math.max(100, this._gameDefinition?.gameConfig?.intervalMs ?? 100)),
                 map(content => {
                     //console.log(`return content`, contentIn);
                     return content;
                 }));
     }
 
+    playerEvents(): Observable<any> {
+        return this._playerEventObservable!!
+            .pipe(
+                bufferTime(Math.max(100, this._gameDefinition?.gameConfig?.intervalMs ?? 100)),
+                filter(content => {
+                    return !!content?.length;
+                }),
+                map(content => {
+                    return content;
+                }));
+    }
+
+
 
     _startGameLoop() {
         this._loopActive = true;
-        const source = interval(this._gameDefinition?.intervalMs ?? 100);
+        const source = interval(this._gameDefinition?.gameConfig?.intervalMs ?? 100);
         var loggerLoop = this._logFactory.get("GameLoopLogic");
         var loggerUserEnter = this._logFactory.get("UserEnterLogic");
         var loggerUserExit = this._logFactory.get("UserExitLogic");
@@ -180,6 +256,7 @@ export class GameContainer implements IGameContainer {
                         //console.log(`Interval: ${this._loopMetrics.previousInterval}, Last Active: ${intervalStartTime - this._loopMetrics.lastActive}`);
 
                         if (intervalStartTime - this._loopMetrics.lastActive > 120000) {
+                            console.log(`Game ending due to inactivity. gamePrimaryName:${this._gamePrimaryName} `)
                             this._loopActive = false;
                             this._endLoop.next(".");
                             this._endMetrics.next(".");
@@ -195,88 +272,84 @@ export class GameContainer implements IGameContainer {
                             var nextPos = this._newUserList.shift();
 
                             try {
-                                //this._executeUserFunction("userEnterLogic", loggerUserEnter, this._userEnterLogic, { position: nextPos });
-                                this._userEnterLogic?.call(this._gameThis, require, loggerUserEnter, this._scene, this._gameState, { position: nextPos });
-                            } catch (ex) {
+                                this._onUserEnterCallback(nextPos);
+                            } catch (ex: any) {
+                                loggerUserEnter.log(`Error: ${ex.message}`);
                                 throw new Error(`User Enter Excepion: ${ex.message}`);
                             }
 
 
-                            console.log(`executed _userEnterLogic pos:${nextPos}`);
+                            console.log(`executed userEnterLogic. gamePrimaryName:${this._gamePrimaryName}, pos:${nextPos}`);
                         }
 
                         // --- User Exit Logic
-
                         while (this._exitedUserList.length) {
                             var nextPos = this._exitedUserList.shift();
 
                             try {
-                                //this._executeUserFunction("userExitLogic", loggerUserExit, this._userExitLogic, { position: nextPos });
-                                this._userExitLogic?.call(this._gameThis, require, loggerUserExit, this._scene, this._gameState, { position: nextPos });
-                            } catch (ex) {
+                                this._onUserExitCallback(playerPos);
+                            } catch (ex: any) {
+                                loggerUserExit.log(`Error: ${ex.message}`);
                                 throw new Error(`User Exit Excepion: ${ex.message}`);
                             }
 
-                            console.log(`executed _userExitLogic pos:${nextPos}`);
+                            console.log(`executed userExitLogic. gamePriamryName:${this._gamePrimaryName}, pos:${nextPos}`);
                         }
 
                         // --- User Event Logic
+                        while (this._playerEventQueue.length) {
+                            var event = this._playerEventQueue.shift();
+                            var playerPos = this._playerList[`${event?.connectionId}`]
 
-                        while (this._userEventQueue.length) {
-                            var event = this._userEventQueue.shift();
-                            var userPos = this._userList[`${event?.connectionId}`]
-
-                            if (userPos >= 0) {
-                                var userEventListWrapper = JSON.parse(`${event?.content}`);
-                                var userEventList = lodash.map(userEventListWrapper, (event) => {
-                                    return event.data;
-                                });
-                                var userEvent = {
-                                    content: userEventList,
-                                    position: userPos
-                                };
+                            if (playerPos >= 0) {
+                                
 
                                 try {
-                                    //this._executeUserFunction("userEventLogic", loggerUserEvent, this._userEventLogic, userEvent);
-                                    this._userEventLogic?.call(this._gameThis, require, loggerUserEvent, this._scene, this._gameState, userEvent);
-                                } catch (ex) {
-                                    throw new Error(`User Event Excepion: ${ex.message}`);
+                                    var playerEventList = JSON.parse(`${event?.content}`);
+                                for (let playerEvent of playerEventList) {
+                                    this._onUserEventCallback(playerPos, playerEvent.data);
+                                }
+
+                                } catch (ex: any) {
+                                    loggerUserEvent.log(`Error: ${ex.message}`);
+                                    throw new Error(`Player Event Excepion: ${ex.message}`);
                                 }
 
                             } else {
                                 console.log(`Could not find user: ${event?.connectionId}`);
+
                             }
                         }
 
                         // --- Loop step logic
                         try {
                             //this._executeUserFunction("gameLoopLogic", loggerLoop, this._gameLoopLogic);
-                            this._gameLoopLogic?.call(this._gameThis, require, loggerLoop, this._scene, this._gameState);
-                        } catch (ex) {
+                            //this._gameLoopLogic?.call(this._gameThis, require, loggerLoop, this._scene, this._gameState);
+                            this._onGameLoopCallback();
+                        } catch (ex: any) {
+                            loggerLoop.log(`Error: ${ex.message}`);
                             throw new Error(`Game Loop Excepion: ${ex.message}`);
                         }
 
                         // ---
 
-                        this._gameState.breakActive = this._gameThis.breakActive;
+                        //this._gameState.breakActive = this._gameThis.breakActive;
                         // ---
 
                         //clearTimeout(loopTimeout);
 
-                        this._loopMetrics.logs = this._logFactory.takeLogs();
+                        var metrics = copyObj(this._loopMetrics);
+                        metrics.logs = this._logFactory.takeLogs();
 
-                        this._gameStepObservable?.next(this._gameState);
-                        this._metricsObservable?.next(this._loopMetrics);
+                        //this._loopMetrics.logs = this._logFactory.takeLogs();
+                        //this._gameStepObservable?.next(this._gameState);
+                        this._metricsObservable?.next(metrics);
 
                     } catch (ex) {
-                        var logs = this._logFactory.takeLogs();
-                        this._metricsObservable?.next({ error: ex.message, logs: logs });
-                        this._gameStepObservable?.error({ error: ex.message });
                         this._loopActive = false;
                         this._endLoop.next(".");
                         this._endMetrics.next(".");
                     }
-
                 },
                 ex => {
                     this._metricsObservable?.next({ error: ex.message });
@@ -285,6 +358,10 @@ export class GameContainer implements IGameContainer {
                     this._loopActive = false;
                 },
                 () => {
+                    this._onGameStopCallback();
+                    var metrics = copyObj(this._loopMetrics);
+                    metrics.logs = this._logFactory.takeLogs();
+                    this._metricsObservable?.next(metrics);
                     this._gameStepObservable?.complete();
                     this._gameStepObservable = null;
                     this._loopActive = false;
@@ -334,10 +411,9 @@ export class GameContainer implements IGameContainer {
 
     destroyGame(content: string): Promise<string> {
         return new Promise((resolve, reject) => {
-            this._gameState = {};
-            this._userList = {};
+            this._playerList = {};
             this._nextPos = 0;
-            this._userEventQueue = [];
+            this._playerEventQueue = [];
             this._gameThis = { breakActive: false, _isStepComplete: false };
 
             this._loopActive = false;
@@ -348,16 +424,15 @@ export class GameContainer implements IGameContainer {
         });
     }
 
-    queueNewUser(connectionIdIn: string, content: string): Promise<string> {
+    playerEnter(connectionIdIn: string, content: string): Promise<string> {
         return new Promise((resolve, reject) => {
             try {
 
-                for (const connectionId in this._userList) {
+                for (const connectionId in this._playerList) {
                     if (connectionId == connectionIdIn) {
-                        console.log(`## Existing USER ${connectionIdIn}, pos: ${this._userList[connectionIdIn]} --`);
+                        console.log(`## Existing USER ${connectionIdIn}, pos: ${this._playerList[connectionIdIn]} --`);
 
-                        //this._newUserList.push(this._userList[connectionIdIn]);
-                        resolve(JSON.stringify({ position: this._userList[connectionIdIn] }));
+                        resolve(JSON.stringify({ position: this._playerList[connectionIdIn] }));
                         return;
                     }
                 }
@@ -369,10 +444,10 @@ export class GameContainer implements IGameContainer {
 
                 this._loopMetrics.lastActive = new Date().getTime();
 
-                this._userList[connectionIdIn] = nextPos;
+                this._playerList[connectionIdIn] = nextPos;
                 this._newUserList.push(nextPos);
 
-                resolve(JSON.stringify({ position: this._userList[connectionIdIn] }));
+                resolve(JSON.stringify({ position: this._playerList[connectionIdIn] }));
 
             } catch (ex) {
                 console.log(ex);
@@ -381,25 +456,25 @@ export class GameContainer implements IGameContainer {
         });
     }
 
-    exitUser(connectionIdIn: string, content: string): Promise<string> {
+    playerExit(connectionIdIn: string, content: string): Promise<string> {
         return new Promise((resolve, reject) => {
             try {
 
                 console.log(`### USER EXITED [${connectionIdIn}]: ${content} ###`);
 
-                for (const connectionId in this._userList) {
+                for (const connectionId in this._playerList) {
                     if (connectionId == connectionIdIn) {
 
-                        this._exitedUserList.push(this._userList[connectionIdIn]);
+                        this._exitedUserList.push(this._playerList[connectionIdIn]);
 
-                        delete this._userList[connectionIdIn];
+                        delete this._playerList[connectionIdIn];
 
-                        var userCount = 0;
-                        for (const pos in this._userList) {
-                            userCount++;
+                        var playerCount = 0;
+                        for (const pos in this._playerList) {
+                            playerCount++;
                         }
 
-                        console.log(`Removing existing connection ${connectionIdIn}, new user count: ${userCount}`);
+                        console.log(`Removing existing connection ${connectionIdIn}, new user count: ${playerCount}`);
                     }
                 }
 
@@ -411,10 +486,10 @@ export class GameContainer implements IGameContainer {
         });
     }
 
-    queueUserEvent(data: any) {
+    playerEventIn(data: any) {
         try {
             this._loopMetrics.lastActive = new Date().getTime();
-            this._userEventQueue.push(data)
+            this._playerEventQueue.push(data)
         } catch (ex) {
             console.log(ex);
         }

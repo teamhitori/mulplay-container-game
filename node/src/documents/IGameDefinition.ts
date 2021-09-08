@@ -1,10 +1,10 @@
+import { IGameConfig } from "./IGameConfig";
+
 export interface IGameDefinition {
-    gameName: string,
-    intervalMs: number,
-    frontEndLogic: string,
-    startLogic: string,
-    userEnterLogic: string,
-    userExitLogic: string,
-    userEventLogic: string,
-    gameLoopLogic: string
+  gameName: string;
+  frontendLogic: string;
+  backendLogic: string;
+  gameConfig: IGameConfig;
+  isPublished: boolean;
+  publishedPath: string;
 }

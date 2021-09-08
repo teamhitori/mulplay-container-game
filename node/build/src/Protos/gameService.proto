@@ -8,14 +8,15 @@ package Mulplay;
 service GameService {
   rpc ping (Document) returns (Document);
   rpc createGame (Document) returns (Document);
-  rpc startGame (ConnectedUserDocument) returns (stream Document);
-  rpc startMetrics (ConnectedUserDocument) returns (stream ConnectedUserDocument);
-  rpc stepGame (ConnectedUserDocument) returns (Document);
-  rpc restartGame (ConnectedUserDocument) returns (Document);
+  rpc startGame (Document) returns (stream Document);
+  rpc startMetrics (Document) returns (stream Document);
+  rpc stepGame (Document) returns (Document);
+  rpc restartGame (Document) returns (Document);
   rpc destroyGame (Document) returns (Document);
-  rpc queueNewUser (ConnectedUserDocument) returns (ConnectedUserDocument);
-  rpc exitUser (ConnectedUserDocument) returns (ConnectedUserDocument);
-  rpc queueUserEvent (stream ConnectedUserDocument) returns (stream ConnectedUserDocument);
+  rpc playerEnter (ConnectedPlayerDocument) returns (ConnectedPlayerDocument);
+  rpc playerExit (ConnectedPlayerDocument) returns (ConnectedPlayerDocument);
+  rpc playerEventIn (stream ConnectedPlayerDocument) returns (Document);
+  rpc playerEventOut (Document) returns (stream ConnectedPlayerDocument);
 }
 
 message Document {
@@ -23,7 +24,7 @@ message Document {
 	string gamePrimaryName = 2;
 }
 
-message ConnectedUserDocument {
+message ConnectedPlayerDocument {
 	string content = 1;
 	string connectionId = 2;
 	string gamePrimaryName = 3;
