@@ -428,20 +428,23 @@ export class GameContainer implements IGameContainer {
         return new Promise((resolve, reject) => {
             try {
 
+                var existingUser = false; 
+                var nextPos = this._nextPos;
+
                 for (const connectionId in this._playerList) {
                     if (connectionId == connectionIdIn) {
-                        console.log(`## Existing USER ${connectionIdIn}, pos: ${this._playerList[connectionIdIn]} --`);
+                        existingUser = true;
+                        nextPos = this._playerList[connectionIdIn];
+                        console.log(`## Existing USER ${connectionIdIn}, pos: ${this._playerList[connectionIdIn]}`);
 
-                        resolve(JSON.stringify({ position: this._playerList[connectionIdIn] }));
-                        return;
                     }
                 }
 
-                var nextPos = this._nextPos;
-                this._nextPos++;
-
-                console.log(`### NEW USER [${connectionIdIn}]: ${content}, pos: ${nextPos}`);
-
+                if(!existingUser){
+                    console.log(`### NEW USER [${connectionIdIn}]: ${content}, pos: ${nextPos}`);
+                    this._nextPos++;
+                }
+                
                 this._loopMetrics.lastActive = new Date().getTime();
 
                 this._playerList[connectionIdIn] = nextPos;

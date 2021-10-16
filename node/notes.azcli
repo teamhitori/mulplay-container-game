@@ -29,3 +29,21 @@ docker run -d `
 # Remote Explorer > Containers >
 
 # ctrl shift + p
+
+
+# update 
+apt-get update
+# install curl 
+apt-get install -y curl
+# get install script and pass it to execute: 
+curl -sL https://deb.nodesource.com/setup_14.x | bash
+# and install node 
+# apt-get install nodejs
+apt-get install -y nodejs
+# confirm that it was successful 
+node -v
+# npm installs automatically 
+npm -v
+
+npm run debug &
+envoy -c envoy.yaml

@@ -52,7 +52,7 @@ export class GrpcInterop {
             });
         var protoDescriptor = grpc.loadPackageDefinition(packageDefinition);
 
-        const port = 8080;
+        const port = 9090;
         const server = new grpc.Server();
 
         const state = {
@@ -235,7 +235,7 @@ export class GrpcInterop {
     static ping(call, callback) {
         try {
             console.log("ping called");
-            //var content = JSON.parse(call.request.content);
+            var content = JSON.parse(call);
             console.log(call.request.content);
             callback(null, { content: "pong" });
         }
