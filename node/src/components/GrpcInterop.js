@@ -2,13 +2,14 @@
 const fs = require("fs");
 const grpc = require('@grpc/grpc-js');
 var protoLoader = require('@grpc/proto-loader');
-const rx = require('rxjs');
-const operators = require('rxjs/operators');
 const BABYLON = require('babylonjs');
 const inv = require("inversify");
 const appInsights = require("applicationinsights");
 import { TYPES } from "./types";
+import { v4 as uuidv4 } from 'uuid';
 import { GameContainer } from './GameContainer';
+import { filter } from 'rxjs/operators';
+
 
 appInsights.setup(process.env.APPLICATIONINSIGHTS_KEY)
     .setDistributedTracingMode(appInsights.DistributedTracingModes.AI_AND_W3C)
@@ -52,11 +53,12 @@ export class GrpcInterop {
             });
         var protoDescriptor = grpc.loadPackageDefinition(packageDefinition);
 
-        const port = 9090;
+        const port = 8081;
         const server = new grpc.Server();
 
         const state = {
             ping: GrpcInterop.ping,
+            pingStream: GrpcInterop.pingStream,
             createGame: GrpcInterop.createGame,
             startGame: GrpcInterop.startGame,
             restartGame: GrpcInterop.restartGame,
@@ -65,6 +67,7 @@ export class GrpcInterop {
             destroyGame: GrpcInterop.destroyGame,
             playerEnter: GrpcInterop.playerEnter,
             playerExit: GrpcInterop.playerExit,
+            playerEventInStream: GrpcInterop.playerEventInStream,
             playerEventIn: GrpcInterop.playerEventIn,
             playerEventOut: GrpcInterop.playerEventOut,
             gameContainers: {}
@@ -78,6 +81,9 @@ export class GrpcInterop {
             server.start();
             console.log(`Server starting on port ${port}`);
         });
+
+
+
     }
 
     static createGame(call, callback) {
@@ -235,9 +241,8 @@ export class GrpcInterop {
     static ping(call, callback) {
         try {
             console.log("ping called");
-            var content = JSON.parse(call);
             console.log(call.request.content);
-            callback(null, { content: "pong" });
+            callback(null, { content: `pong: ${call.request.content}` });
         }
         catch (ex) {
             console.log(ex);
@@ -246,23 +251,39 @@ export class GrpcInterop {
         }
     }
 
-    static playerEnter(call, callback) {
+    static pingStream(call) {
         try {
-            console.log(`playerEnter called. connectionId:${call.request?.connectionId}, gamePrimaryName:${call.request.gamePrimaryName}`);
+            console.log(`pingStream called.`);
             //var content = JSON.parse(call.request.content);
             console.log(call.request.content);
-            this.gameContainers[call.request.gamePrimaryName]?.playerEnter.call(
-                this.gameContainers[call.request.gamePrimaryName],
-                call.request.connectionId,
-                call.request.content)
-                .then(content => {
-                    callback(null, { content: content });
-                })
-                .catch(ex => {
-                    console.log(ex);
-                    callback(ex, null);
-                    client.trackException({ exception: ex });
-                });
+
+            call.write({ content: "Pong" });
+            call.write({ content: "Pong" });
+            call.write({ content: "Pong" });
+            call.write({ content: "Pong" });
+            call.write({ content: "Pong" });
+
+            call.end();
+        }
+        catch (ex) {
+            console.log(ex);
+            call.end();
+            client.trackException({ exception: ex });
+        }
+    }
+
+    static playerEnter(call, callback) {
+        try {
+
+            var connectionId = uuidv4();
+
+            console.log(`playerEnter called. new connectionId:${connectionId}, gamePrimaryName:${call.request.gamePrimaryName}`);
+
+            // additional logic to ensure connectionId is valid
+
+            callback(null, { connectionId: connectionId });
+
+
         }
         catch (ex) {
             console.log(ex);
@@ -295,9 +316,9 @@ export class GrpcInterop {
         }
     }
 
-    static playerEventIn(call) {
+    static playerEventInStream(call) {
         try {
-            console.log(`queueUserEvent called`);
+            //console.log(`queueUserEvent called`);
             //var content = JSON.parse(call.request.content);
             //console.log(content);
             //var onUserEvent = new rx.Subject();
@@ -346,21 +367,43 @@ export class GrpcInterop {
         }
     }
 
+    static playerEventIn(call, callback) {
+        console.log(`queueUserEvent called`);
+        //var content = JSON.parse(call.request.content);
+        //console.log(content);
+        //var onUserEvent = new rx.Subject();
+        try {
+
+            // Process user call.request
+            //console.log(`queueUserEvent ${call.request.connectionId}`);
+
+            this.gameContainers[call.request.gamePrimaryName]?.playerEventIn.call(this.gameContainers[call.request.gamePrimaryName], call.request);
+
+            callback(null, {  });
+        }
+        catch (ex) {
+            onUserEvent.error();
+            console.log(ex);
+            callback(ex, null);
+            client.trackException({ exception: ex });
+        }
+    }
+
     static playerEventOut(call) {
         try {
-            console.log(`playerEventOut called.  gamePrimaryName:${call.request.gamePrimaryName}`);
+            console.log(`playerEventOut called.  gamePrimaryName:${call.request.gamePrimaryName}, connectionId:${call.request.connectionId}`);
             //var content = JSON.parse(call.request.content);
             console.log(call.request.content);
 
             this.gameContainers[call.request.gamePrimaryName]?.playerEvents.call(this.gameContainers[call.request.gamePrimaryName])
+                .pipe(filter(message => {
+                    var res = message.connectionId == call.request.connectionId;
+                    return res;
+                }))
                 .subscribe({
-                    next: content => {
-                        for(let msg of content){
-                            var contentStr = JSON.stringify(msg.state);
-                            call.write({ connectionId: msg.connectionId, content: contentStr });
-                        }
-                        
-                        //console.log(call.request?.connectionId, contentStr);
+                    next: message => {
+                        var contentStr = JSON.stringify(message.state);
+                        call.write({ content: contentStr });
                     },
                     error: ex => {
                         console.log(ex);
@@ -372,6 +415,19 @@ export class GrpcInterop {
                         console.log(`User event Loop Ending, gamePrimaryName:${call.request.gamePrimaryName}`);
                         call.end();
                     }
+                });
+
+            this.gameContainers[call.request.gamePrimaryName]?.playerEnter.call(
+                this.gameContainers[call.request.gamePrimaryName],
+                call.request.connectionId,
+                call.request.content)
+                .then(_ => {
+
+                })
+                .catch(ex => {
+                    console.log(ex);
+                    callback(ex, null);
+                    client.trackException({ exception: ex });
                 });
         }
         catch (ex) {

@@ -1,0 +1,16 @@
+FROM envoyproxy/envoy-dev
+
+WORKDIR /src
+
+# update 
+RUN apt-get update
+# install curl 
+RUN apt-get install -y curl
+# get install script and pass it to execute: 
+RUN curl -sL https://deb.nodesource.com/setup_14.x | bash
+# and install node 
+# apt-get install nodejs
+RUN apt-get install -y nodejs
+
+ENTRYPOINT ["tail"]
+CMD ["-f","/dev/null"]

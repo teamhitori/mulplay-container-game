@@ -6,9 +6,11 @@ export class GrpcInterop {
     static stepGame(call: any, callback: any): void;
     static destroyGame(call: any, callback: any): void;
     static ping(call: any, callback: any): void;
+    static pingStream(call: any): void;
     static playerEnter(call: any, callback: any): void;
     static playerExit(call: any, callback: any): void;
-    static playerEventIn(call: any): void;
+    static playerEventInStream(call: any): void;
+    static playerEventIn(call: any, callback: any): void;
     static playerEventOut(call: any): void;
     start(): void;
 }

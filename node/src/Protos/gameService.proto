@@ -7,16 +7,18 @@ package Mulplay;
 // The service definition.
 service GameService {
   rpc ping (Document) returns (Document);
+  rpc pingStream (Document) returns (stream Document);
   rpc createGame (Document) returns (Document);
   rpc startGame (Document) returns (stream Document);
   rpc startMetrics (Document) returns (stream Document);
   rpc stepGame (Document) returns (Document);
   rpc restartGame (Document) returns (Document);
   rpc destroyGame (Document) returns (Document);
-  rpc playerEnter (ConnectedPlayerDocument) returns (ConnectedPlayerDocument);
-  rpc playerExit (ConnectedPlayerDocument) returns (ConnectedPlayerDocument);
-  rpc playerEventIn (stream ConnectedPlayerDocument) returns (Document);
-  rpc playerEventOut (Document) returns (stream ConnectedPlayerDocument);
+  rpc playerEnter (Document) returns (ConnectedPlayerDocument);
+  rpc playerExit (ConnectedPlayerDocument) returns (Document);
+  rpc playerEventIn (ConnectedPlayerDocument) returns (Document);
+  rpc playerEventInStream (stream ConnectedPlayerDocument) returns (Document);
+  rpc playerEventOut (ConnectedPlayerDocument) returns (stream Document);
 }
 
 message Document {

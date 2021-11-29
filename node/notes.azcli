@@ -1,5 +1,5 @@
 npm init -y 
-npm i --save-dev typescript
+npm i typescript
 tsc --init
 
 npm install --save-dev eslint @typescript-eslint/eslint-plugin @typescript-eslint/parser 

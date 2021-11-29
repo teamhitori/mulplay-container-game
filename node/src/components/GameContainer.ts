@@ -137,7 +137,7 @@ export class GameContainer implements IGameContainer {
     private _onGameStopCallback: () => void = () => { console.log("On game stop callback not set") };
     private _onGameStartCallback: () => void = () => { console.log("On game start callback not set") };
 
-    createGame(content: string): Promise<string> {
+    public createGame(content: string): Promise<string> {
         return new Promise((resolve, reject) => {
             try {
                 var logger = this._logFactory.get("Back End");
@@ -161,7 +161,7 @@ export class GameContainer implements IGameContainer {
         });
     }
 
-    startGame(contentIn: any) {
+    public startGame(contentIn: any) {
         var loggerstart = this._logFactory.get("StartLogic");
 
         this._loopMetrics.lastActive = new Date().getTime();
@@ -200,7 +200,7 @@ export class GameContainer implements IGameContainer {
         }
     }
 
-    gameLoop(): Observable<any> {
+    public gameLoop(): Observable<any> {
         return this._gameStepObservable!!
             .pipe(
                 bufferTime(Math.max(100, this._gameDefinition?.gameConfig?.intervalMs ?? 100)),
@@ -210,19 +210,155 @@ export class GameContainer implements IGameContainer {
                 }));
     }
 
-    playerEvents(): Observable<any> {
+    public playerEvents(): Observable<any> {
         return this._playerEventObservable!!
+            // .pipe(
+            //     bufferTime(Math.max(100, this._gameDefinition?.gameConfig?.intervalMs ?? 100)),
+            //     filter(content => {
+            //         return !!content?.length;
+            //     }),
+            //     map(content => {
+            //         return content;
+            //     }))
+                ;
+    }
+
+    public startMetrics(_: string): Observable<string> {
+
+        if (!this._gameStepObservable) {
+            this._gameStepObservable = new Subject<string>();
+        }
+
+        if (!this._metricsObservable) {
+            this._metricsObservable = new Subject<any>();
+        }
+
+        return this._metricsObservable!!
             .pipe(
-                bufferTime(Math.max(100, this._gameDefinition?.gameConfig?.intervalMs ?? 100)),
+                takeUntil(this._endMetrics),
+                bufferTime(3000),
                 filter(content => {
-                    return !!content?.length;
+                    return content.length > 0;
                 }),
                 map(content => {
-                    return content;
+                    try {
+                        var str = JSON.stringify(content);
+                        return str;
+                    } catch (ex) {
+                        console.log(ex);
+                    }
+                    return "";
+
                 }));
     }
 
+    public stepGame(content: string): Promise<string> {
+        return new Promise((resolve, reject) => {
+            this._loopMetrics.lastActive = new Date().getTime();
 
+            this._gameThis.breakActive = true;
+            this._gameThis._isStepComplete = false;
+
+            resolve(content);
+        });
+    }
+
+    public destroyGame(content: string): Promise<boolean> {
+        return new Promise((resolve, reject) => {
+            if(this._loopActive){
+                this._playerList = {};
+                this._nextPos = 0;
+                this._playerEventQueue = [];
+                this._gameThis = { breakActive: false, _isStepComplete: false };
+    
+                this._loopActive = false;
+                this._endLoop.next(".");
+                this._endMetrics.next(".");
+    
+                resolve(true);
+            } else {
+                resolve(false);
+            }
+            
+        });
+    }
+
+    public playerEnter(connectionIdIn: string, content: string): Promise<string> {
+        return new Promise((resolve, reject) => {
+            try {
+
+                var existingUser = false; 
+                var nextPos = this._nextPos;
+
+                for (const connectionId in this._playerList) {
+                    if (connectionId == connectionIdIn) {
+                        existingUser = true;
+                        nextPos = this._playerList[connectionIdIn];
+                        console.log(`## Existing USER ${connectionIdIn}, pos: ${this._playerList[connectionIdIn]}`);
+
+                    }
+                }
+
+                if(!existingUser){
+                    console.log(`### NEW USER [${connectionIdIn}]: ${content}, pos: ${nextPos}`);
+                    this._nextPos++;
+                }
+                
+                this._loopMetrics.lastActive = new Date().getTime();
+
+                this._playerList[connectionIdIn] = nextPos;
+                this._newUserList.push(nextPos);
+
+                resolve(JSON.stringify({ position: this._playerList[connectionIdIn] }));
+
+            } catch (ex) {
+                console.log(ex);
+                reject(ex);
+            }
+        });
+    }
+
+    public playerExit(connectionIdIn: string): Promise<string> {
+        return new Promise((resolve, reject) => {
+            try {
+
+                console.log(`### USER EXITED [${connectionIdIn}] ###`);
+
+                for (const connectionId in this._playerList) {
+                    if (connectionId == connectionIdIn) {
+
+                        this._exitedUserList.push(this._playerList[connectionIdIn]);
+
+                        delete this._playerList[connectionIdIn];
+
+                        var playerCount = 0;
+                        for (const pos in this._playerList) {
+                            playerCount++;
+                        }
+
+                        console.log(`Removing existing connection ${connectionIdIn}, new user count: ${playerCount}`);
+                    }
+                }
+
+                resolve("");
+            } catch (ex) {
+                console.log(ex);
+                reject(ex);
+            }
+        });
+    }
+
+    public playerEventIn(connectionId: String, content: string) {
+        try {
+            this._loopMetrics.lastActive = new Date().getTime();
+            this._playerEventQueue.push(<IConnectedUserDocument>{
+                connectionId: connectionId,
+                content: content
+            })
+        } catch (ex) {
+            console.log(ex);
+        }
+    }
 
     _startGameLoop() {
         this._loopActive = true;
@@ -269,22 +405,22 @@ export class GameContainer implements IGameContainer {
                         // --- User Enter Logic
 
                         while (this._newUserList.length) {
-                            var nextPos = this._newUserList.shift();
+                            var playerPos = this._newUserList.shift();
 
                             try {
-                                this._onUserEnterCallback(nextPos);
+                                this._onUserEnterCallback(playerPos);
                             } catch (ex: any) {
                                 loggerUserEnter.log(`Error: ${ex.message}`);
                                 throw new Error(`User Enter Excepion: ${ex.message}`);
                             }
 
 
-                            console.log(`executed userEnterLogic. gamePrimaryName:${this._gamePrimaryName}, pos:${nextPos}`);
+                            console.log(`executed userEnterLogic. gamePrimaryName:${this._gamePrimaryName}, pos:${playerPos}`);
                         }
 
                         // --- User Exit Logic
                         while (this._exitedUserList.length) {
-                            var nextPos = this._exitedUserList.shift();
+                            var playerPos = this._exitedUserList.shift();
 
                             try {
                                 this._onUserExitCallback(playerPos);
@@ -293,7 +429,7 @@ export class GameContainer implements IGameContainer {
                                 throw new Error(`User Exit Excepion: ${ex.message}`);
                             }
 
-                            console.log(`executed userExitLogic. gamePriamryName:${this._gamePrimaryName}, pos:${nextPos}`);
+                            console.log(`executed userExitLogic. gamePriamryName:${this._gamePrimaryName}, pos:${playerPos}`);
                         }
 
                         // --- User Event Logic
@@ -337,8 +473,8 @@ export class GameContainer implements IGameContainer {
                         // ---
 
                         //clearTimeout(loopTimeout);
-
                         var metrics = copyObj(this._loopMetrics);
+
                         metrics.logs = this._logFactory.takeLogs();
 
                         //this._loopMetrics.logs = this._logFactory.takeLogs();
@@ -368,160 +504,4 @@ export class GameContainer implements IGameContainer {
                 });
 
     }
-
-    startMetrics(_: string): Observable<string> {
-
-        if (!this._gameStepObservable) {
-            this._gameStepObservable = new Subject<string>();
-        }
-
-        if (!this._metricsObservable) {
-            this._metricsObservable = new Subject<any>();
-        }
-
-        return this._metricsObservable!!
-            .pipe(
-                takeUntil(this._endMetrics),
-                bufferTime(3000),
-                filter(content => {
-                    return content.length > 0;
-                }),
-                map(content => {
-                    try {
-                        var str = JSON.stringify(content);
-                        return str;
-                    } catch (ex) {
-                        console.log(ex);
-                    }
-                    return "";
-
-                }));
-    }
-
-    stepGame(content: string): Promise<string> {
-        return new Promise((resolve, reject) => {
-            this._loopMetrics.lastActive = new Date().getTime();
-
-            this._gameThis.breakActive = true;
-            this._gameThis._isStepComplete = false;
-
-            resolve(content);
-        });
-    }
-
-    destroyGame(content: string): Promise<string> {
-        return new Promise((resolve, reject) => {
-            this._playerList = {};
-            this._nextPos = 0;
-            this._playerEventQueue = [];
-            this._gameThis = { breakActive: false, _isStepComplete: false };
-
-            this._loopActive = false;
-            this._endLoop.next(".");
-            this._endMetrics.next(".");
-
-            resolve(content);
-        });
-    }
-
-    playerEnter(connectionIdIn: string, content: string): Promise<string> {
-        return new Promise((resolve, reject) => {
-            try {
-
-                var existingUser = false; 
-                var nextPos = this._nextPos;
-
-                for (const connectionId in this._playerList) {
-                    if (connectionId == connectionIdIn) {
-                        existingUser = true;
-                        nextPos = this._playerList[connectionIdIn];
-                        console.log(`## Existing USER ${connectionIdIn}, pos: ${this._playerList[connectionIdIn]}`);
-
-                    }
-                }
-
-                if(!existingUser){
-                    console.log(`### NEW USER [${connectionIdIn}]: ${content}, pos: ${nextPos}`);
-                    this._nextPos++;
-                }
-                
-                this._loopMetrics.lastActive = new Date().getTime();
-
-                this._playerList[connectionIdIn] = nextPos;
-                this._newUserList.push(nextPos);
-
-                resolve(JSON.stringify({ position: this._playerList[connectionIdIn] }));
-
-            } catch (ex) {
-                console.log(ex);
-                reject(ex);
-            }
-        });
-    }
-
-    playerExit(connectionIdIn: string, content: string): Promise<string> {
-        return new Promise((resolve, reject) => {
-            try {
-
-                console.log(`### USER EXITED [${connectionIdIn}]: ${content} ###`);
-
-                for (const connectionId in this._playerList) {
-                    if (connectionId == connectionIdIn) {
-
-                        this._exitedUserList.push(this._playerList[connectionIdIn]);
-
-                        delete this._playerList[connectionIdIn];
-
-                        var playerCount = 0;
-                        for (const pos in this._playerList) {
-                            playerCount++;
-                        }
-
-                        console.log(`Removing existing connection ${connectionIdIn}, new user count: ${playerCount}`);
-                    }
-                }
-
-                resolve(content);
-            } catch (ex) {
-                console.log(ex);
-                reject(ex);
-            }
-        });
-    }
-
-    playerEventIn(data: any) {
-        try {
-            this._loopMetrics.lastActive = new Date().getTime();
-            this._playerEventQueue.push(data)
-        } catch (ex) {
-            console.log(ex);
-        }
-    }
-
-    // _executeUserFunction(tag: string, logger: Logger, func?: Function, eventData?: any){
-    //     var debugData: any = {};
-
-    //     if(this._gameState.breakActive){
-    //         debugData["in"] = {
-    //             this: copyObj(this._gameThis),
-    //             gameState:  copyObj(this._gameState) ,
-    //             eventData: eventData
-    //         }
-    //     }
-
-    //     func?.call(this._gameThis, require, logger, this._scene, this._gameState, eventData);
-
-    //     if(this._gameState.breakActive){
-    //         debugData["out"] = {
-    //             this: copyObj(this._gameThis),
-    //             gameState:  copyObj(this._gameState) 
-    //         }
-
-    //         if(!this._loopMetrics.debug[tag]) {
-    //             this._loopMetrics.debug[tag] = [];
-    //         }
-
-    //         this._loopMetrics.debug[tag].push(debugData)
-    //     }
-    // }
 }

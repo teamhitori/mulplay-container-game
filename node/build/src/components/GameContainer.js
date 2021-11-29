@@ -170,12 +170,115 @@ let GameContainer = class GameContainer {
         }));
     }
     playerEvents() {
-        return this._playerEventObservable
-            .pipe(operators_1.bufferTime(Math.max(100, this._gameDefinition?.gameConfig?.intervalMs ?? 100)), operators_1.filter(content => {
-            return !!content?.length;
+        return this._playerEventObservable;
+    }
+    startMetrics(_) {
+        if (!this._gameStepObservable) {
+            this._gameStepObservable = new rxjs_1.Subject();
+        }
+        if (!this._metricsObservable) {
+            this._metricsObservable = new rxjs_1.Subject();
+        }
+        return this._metricsObservable
+            .pipe(operators_1.takeUntil(this._endMetrics), operators_1.bufferTime(3000), operators_1.filter(content => {
+            return content.length > 0;
         }), operators_1.map(content => {
-            return content;
+            try {
+                var str = JSON.stringify(content);
+                return str;
+            }
+            catch (ex) {
+                console.log(ex);
+            }
+            return "";
         }));
+    }
+    stepGame(content) {
+        return new Promise((resolve, reject) => {
+            this._loopMetrics.lastActive = new Date().getTime();
+            this._gameThis.breakActive = true;
+            this._gameThis._isStepComplete = false;
+            resolve(content);
+        });
+    }
+    destroyGame(content) {
+        return new Promise((resolve, reject) => {
+            if (this._loopActive) {
+                this._playerList = {};
+                this._nextPos = 0;
+                this._playerEventQueue = [];
+                this._gameThis = { breakActive: false, _isStepComplete: false };
+                this._loopActive = false;
+                this._endLoop.next(".");
+                this._endMetrics.next(".");
+                resolve(true);
+            }
+            else {
+                resolve(false);
+            }
+        });
+    }
+    playerEnter(connectionIdIn, content) {
+        return new Promise((resolve, reject) => {
+            try {
+                var existingUser = false;
+                var nextPos = this._nextPos;
+                for (const connectionId in this._playerList) {
+                    if (connectionId == connectionIdIn) {
+                        existingUser = true;
+                        nextPos = this._playerList[connectionIdIn];
+                        console.log(`## Existing USER ${connectionIdIn}, pos: ${this._playerList[connectionIdIn]}`);
+                    }
+                }
+                if (!existingUser) {
+                    console.log(`### NEW USER [${connectionIdIn}]: ${content}, pos: ${nextPos}`);
+                    this._nextPos++;
+                }
+                this._loopMetrics.lastActive = new Date().getTime();
+                this._playerList[connectionIdIn] = nextPos;
+                this._newUserList.push(nextPos);
+                resolve(JSON.stringify({ position: this._playerList[connectionIdIn] }));
+            }
+            catch (ex) {
+                console.log(ex);
+                reject(ex);
+            }
+        });
+    }
+    playerExit(connectionIdIn) {
+        return new Promise((resolve, reject) => {
+            try {
+                console.log(`### USER EXITED [${connectionIdIn}] ###`);
+                for (const connectionId in this._playerList) {
+                    if (connectionId == connectionIdIn) {
+                        this._exitedUserList.push(this._playerList[connectionIdIn]);
+                        delete this._playerList[connectionIdIn];
+                        var playerCount = 0;
+                        for (const pos in this._playerList) {
+                            playerCount++;
+                        }
+                        console.log(`Removing existing connection ${connectionIdIn}, new user count: ${playerCount}`);
+                    }
+                }
+                resolve("");
+            }
+            catch (ex) {
+                console.log(ex);
+                reject(ex);
+            }
+        });
+    }
+    playerEventIn(connectionId, content) {
+        try {
+            this._loopMetrics.lastActive = new Date().getTime();
+            this._playerEventQueue.push({
+                connectionId: connectionId,
+                content: content
+            });
+        }
+        catch (ex) {
+            console.log(ex);
+        }
     }
     _startGameLoop() {
         this._loopActive = true;
@@ -212,19 +315,19 @@ let GameContainer = class GameContainer {
                 // }, 1000);
                 // --- User Enter Logic
                 while (this._newUserList.length) {
-                    var nextPos = this._newUserList.shift();
+                    var playerPos = this._newUserList.shift();
                     try {
-                        this._onUserEnterCallback(nextPos);
+                        this._onUserEnterCallback(playerPos);
                     }
                     catch (ex) {
                         loggerUserEnter.log(`Error: ${ex.message}`);
                         throw new Error(`User Enter Excepion: ${ex.message}`);
                     }
-                    console.log(`executed userEnterLogic. gamePrimaryName:${this._gamePrimaryName}, pos:${nextPos}`);
+                    console.log(`executed userEnterLogic. gamePrimaryName:${this._gamePrimaryName}, pos:${playerPos}`);
                 }
                 // --- User Exit Logic
                 while (this._exitedUserList.length) {
-                    var nextPos = this._exitedUserList.shift();
+                    var playerPos = this._exitedUserList.shift();
                     try {
                         this._onUserExitCallback(playerPos);
                     }
@@ -232,7 +335,7 @@ let GameContainer = class GameContainer {
                         loggerUserExit.log(`Error: ${ex.message}`);
                         throw new Error(`User Exit Excepion: ${ex.message}`);
                     }
-                    console.log(`executed userExitLogic. gamePriamryName:${this._gamePrimaryName}, pos:${nextPos}`);
+                    console.log(`executed userExitLogic. gamePriamryName:${this._gamePrimaryName}, pos:${playerPos}`);
                 }
                 // --- User Event Logic
                 while (this._playerEventQueue.length) {
@@ -293,106 +396,6 @@ let GameContainer = class GameContainer {
             this._gameStepObservable = null;
             this._loopActive = false;
         });
-    }
-    startMetrics(_) {
-        if (!this._gameStepObservable) {
-            this._gameStepObservable = new rxjs_1.Subject();
-        }
-        if (!this._metricsObservable) {
-            this._metricsObservable = new rxjs_1.Subject();
-        }
-        return this._metricsObservable
-            .pipe(operators_1.takeUntil(this._endMetrics), operators_1.bufferTime(3000), operators_1.filter(content => {
-            return content.length > 0;
-        }), operators_1.map(content => {
-            try {
-                var str = JSON.stringify(content);
-                return str;
-            }
-            catch (ex) {
-                console.log(ex);
-            }
-            return "";
-        }));
-    }
-    stepGame(content) {
-        return new Promise((resolve, reject) => {
-            this._loopMetrics.lastActive = new Date().getTime();
-            this._gameThis.breakActive = true;
-            this._gameThis._isStepComplete = false;
-            resolve(content);
-        });
-    }
-    destroyGame(content) {
-        return new Promise((resolve, reject) => {
-            this._playerList = {};
-            this._nextPos = 0;
-            this._playerEventQueue = [];
-            this._gameThis = { breakActive: false, _isStepComplete: false };
-            this._loopActive = false;
-            this._endLoop.next(".");
-            this._endMetrics.next(".");
-            resolve(content);
-        });
-    }
-    playerEnter(connectionIdIn, content) {
-        return new Promise((resolve, reject) => {
-            try {
-                var existingUser = false;
-                var nextPos = this._nextPos;
-                for (const connectionId in this._playerList) {
-                    if (connectionId == connectionIdIn) {
-                        existingUser = true;
-                        nextPos = this._playerList[connectionIdIn];
-                        console.log(`## Existing USER ${connectionIdIn}, pos: ${this._playerList[connectionIdIn]}`);
-                    }
-                }
-                if (!existingUser) {
-                    console.log(`### NEW USER [${connectionIdIn}]: ${content}, pos: ${nextPos}`);
-                    this._nextPos++;
-                }
-                this._loopMetrics.lastActive = new Date().getTime();
-                this._playerList[connectionIdIn] = nextPos;
-                this._newUserList.push(nextPos);
-                resolve(JSON.stringify({ position: this._playerList[connectionIdIn] }));
-            }
-            catch (ex) {
-                console.log(ex);
-                reject(ex);
-            }
-        });
-    }
-    playerExit(connectionIdIn, content) {
-        return new Promise((resolve, reject) => {
-            try {
-                console.log(`### USER EXITED [${connectionIdIn}]: ${content} ###`);
-                for (const connectionId in this._playerList) {
-                    if (connectionId == connectionIdIn) {
-                        this._exitedUserList.push(this._playerList[connectionIdIn]);
-                        delete this._playerList[connectionIdIn];
-                        var playerCount = 0;
-                        for (const pos in this._playerList) {
-                            playerCount++;
-                        }
-                        console.log(`Removing existing connection ${connectionIdIn}, new user count: ${playerCount}`);
-                    }
-                }
-                resolve(content);
-            }
-            catch (ex) {
-                console.log(ex);
-                reject(ex);
-            }
-        });
-    }
-    playerEventIn(data) {
-        try {
-            this._loopMetrics.lastActive = new Date().getTime();
-            this._playerEventQueue.push(data);
-        }
-        catch (ex) {
-            console.log(ex);
-        }
     }
 };
 GameContainer = tslib_1.__decorate([

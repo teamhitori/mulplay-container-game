@@ -4,6 +4,7 @@ declare const TYPES: {
     ThrowableWeapon: symbol;
     GameContainer: symbol;
     GrpcInterop: symbol;
+    WebSocketService: symbol;
 };
 export { TYPES };
 //# sourceMappingURL=types.d.ts.map

@@ -31,12 +31,12 @@ export declare class GameContainer implements IGameContainer {
     startGame(contentIn: any): void;
     gameLoop(): Observable<any>;
     playerEvents(): Observable<any>;
-    _startGameLoop(): void;
     startMetrics(_: string): Observable<string>;
     stepGame(content: string): Promise<string>;
-    destroyGame(content: string): Promise<string>;
+    destroyGame(content: string): Promise<boolean>;
     playerEnter(connectionIdIn: string, content: string): Promise<string>;
-    playerExit(connectionIdIn: string, content: string): Promise<string>;
-    playerEventIn(data: any): void;
+    playerExit(connectionIdIn: string): Promise<string>;
+    playerEventIn(connectionId: String, content: string): void;
+    _startGameLoop(): void;
 }
 //# sourceMappingURL=GameContainer.d.ts.map

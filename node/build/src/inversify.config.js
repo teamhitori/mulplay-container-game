@@ -6,6 +6,7 @@ require("reflect-metadata");
 const types_1 = require("./components/types");
 const GameContainer_1 = require("./components/GameContainer");
 const GrpcInterop_1 = require("./components/GrpcInterop");
+const WebSocketService_1 = require("./components/WebSocketService");
 const myContainer = new inversify_1.Container();
 exports.myContainer = myContainer;
 //myContainer.bind<Warrior>(TYPES.Warrior).to(Ninja);
@@ -13,6 +14,8 @@ exports.myContainer = myContainer;
 //myContainer.bind<ThrowableWeapon>(TYPES.ThrowableWeapon).to(Shuriken);
 var gameContainer = GameContainer_1.GameContainer;
 var grpcInterop = GrpcInterop_1.GrpcInterop;
+var webSocketService = WebSocketService_1.WebSocketService;
+myContainer.bind(types_1.TYPES.WebSocketService).to(webSocketService);
 myContainer.bind(types_1.TYPES.GameContainer).to(gameContainer);
 myContainer.bind(types_1.TYPES.GrpcInterop).to(grpcInterop);
 //# sourceMappingURL=inversify.config.js.map
